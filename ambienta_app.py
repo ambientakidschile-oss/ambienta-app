@@ -3,87 +3,97 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-# ... (Mantener conexión y carga de datos igual que antes)
+st.set_page_config(page_title="Ambienta Kids CRM", page_icon="🌸", layout="wide")
 
-# Función para formatear RUT automáticamente al guardar
+# Conexión con Google Sheets
+url_planilla = "https://docs.google.com/spreadsheets/d/18Ps9MX7EB7MNg29qVVbc_ITJuy4o536aJbrOrHidNhE/edit?usp=sharing"
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# Función para formatear RUT automáticamente
 def formatear_rut(rut_sucio):
-    # Elimina puntos y guiones previos
     rut = rut_sucio.replace(".", "").replace("-", "").upper()
     if len(rut) < 2: return rut
     cuerpo = rut[:-1]
     dv = rut[-1]
-    # Retorna con puntos y guion: 12.345.678-9
     return f"{int(cuerpo):,}".replace(",", ".") + f"-{dv}"
 
-# --- MÓDULO 3: CLIENTES (VERSION CRM ROBUSTA) ---
-elif menu == "👥 Clientes":
+# --- CARGA DE DATOS ---
+def cargar_hoja(sheet_name, cols):
+    try: 
+        return conn.read(spreadsheet=url_planilla, worksheet=sheet_name)
+    except: 
+        return pd.DataFrame(columns=cols)
+
+df_insumos = cargar_hoja("Insumos", ['Material', 'Costo_U', 'Unidad'])
+df_clientes = cargar_hoja("Clientes", ['Nombre', 'RUT', 'WhatsApp', 'Correo', 'Cumpleaños', 'Dirección'])
+df_ventas = cargar_hoja("Ventas", ['Fecha', 'RUT_Cliente', 'Producto', 'Total'])
+
+st.sidebar.title("🌸 AMBIENTA KIDS")
+menu = st.sidebar.radio("SELECCIONE MÓDULO:", ["👥 Clientes", "📦 Inventario", "👩‍🍳 Producción", "🛒 Caja y Ventas"])
+
+# --- MÓDULO CLIENTES ---
+if menu == "👥 Clientes":
     st.header("👥 Gestión de Clientes y Fidelización")
     
-    # Creamos pestañas para separar el registro del historial
-    tab_registro, tab_historial = st.tabs(["🆕 Registrar Nuevo", "📜 Historial por RUT"])
+    tab1, tab2 = st.tabs(["🆕 Registrar Nuevo", "📜 Historial por RUT"])
 
-    with tab_registro:
-        # 'clear_on_submit=True' hace que los campos queden vacíos al pinchar el botón
-        with st.form("form_fidelizacion", clear_on_submit=True):
+    with tab1:
+        # 'clear_on_submit=True' limpia las celdas automáticamente al guardar
+        with st.form("nuevo_cliente", clear_on_submit=True):
             st.subheader("Datos del Cliente")
             c1, c2 = st.columns(2)
-            
-            nombre_c = c1.text_input("Nombre Completo")
-            # El RUT se ingresa normal, el programa lo arregla solo al guardar
-            rut_c = c1.text_input("RUT (ej: 123456789)")
-            
-            whatsapp_c = c2.text_input("WhatsApp (+569...)")
-            correo_c = c2.text_input("Correo Electrónico")
+            nombre = c1.text_input("Nombre Completo")
+            rut_in = c1.text_input("RUT (ej: 12345678k)")
+            whatsapp = c2.text_input("WhatsApp (+569...)")
+            correo = c2.text_input("Correo Electrónico")
             
             st.divider()
-            st.subheader("Información VIP")
             c3, c4 = st.columns(2)
-            
-            # Viñeta de Cumpleaños
-            fecha_cumple = c3.date_input("Fecha de Cumpleaños", min_value=datetime(1940, 1, 1))
-            dirección_c = c4.text_input("Dirección de Despacho")
-            
-            if st.form_submit_button("💾 REGISTRAR Y LIMPIAR"):
-                if nombre_c and rut_c:
-                    # Formateamos el RUT antes de enviarlo a la nube
-                    rut_final = formatear_rut(rut_c)
-                    
-                    nuevo_cliente = pd.DataFrame([{
-                        "Nombre": nombre_c,
-                        "RUT": rut_final,
-                        "WhatsApp": whatsapp_c,
-                        "Correo": correo_c,
-                        "Cumpleaños": str(fecha_cumple),
-                        "Dirección": dirección_c
-                    }])
-                    
-                    df_c_final = pd.concat([df_clientes, nuevo_cliente], ignore_index=True)
-                    conn.update(spreadsheet=url_planilla, worksheet="Clientes", data=df_c_final)
-                    st.success(f"✅ Cliente {nombre_c} registrado con RUT {rut_final}")
-                    # Al terminar, el formulario se limpia solo por el clear_on_submit
-                else:
-                    st.error("⚠️ Nombre y RUT son obligatorios para la base de datos.")
+            # Aquí está el campo de Cumpleaños
+            cumple = c3.date_input("Fecha de Cumpleaños", min_value=datetime(1940, 1, 1))
+            dirección = c4.text_input("Dirección de Despacho")
 
-    with tab_historial:
-        st.subheader("Buscador de Compras")
+            if st.form_submit_button("💾 GUARDAR Y LIMPIAR"):
+                if nombre and rut_in:
+                    rut_fmt = formatear_rut(rut_in)
+                    nuevo_c = pd.DataFrame([{
+                        "Nombre": nombre, "RUT": rut_fmt, "WhatsApp": whatsapp, 
+                        "Correo": correo, "Cumpleaños": str(cumple), "Dirección": dirección
+                    }])
+                    df_c_final = pd.concat([df_clientes, nuevo_c], ignore_index=True)
+                    conn.update(spreadsheet=url_planilla, worksheet="Clientes", data=df_c_final)
+                    st.success(f"¡Cliente {nombre} registrado!")
+                    st.rerun()
+                else:
+                    st.error("Nombre y RUT son obligatorios")
+
+    with tab2:
         if not df_clientes.empty:
-            # Buscador inteligente por nombre o RUT
-            opciones_clientes = df_clientes['RUT'] + " | " + df_clientes['Nombre']
-            seleccion = st.selectbox("Buscar Cliente para ver historial:", opciones_clientes)
-            rut_buscado = seleccion.split(" | ")[0]
+            busqueda = st.selectbox("Buscar por Nombre:", df_clientes['Nombre'].unique())
+            rut_sel = df_clientes[df_clientes['Nombre'] == busqueda]['RUT'].values[0]
             
-            # Aquí filtraremos la hoja de "Ventas" por este RUT
-            st.info(f"Mostrando historial para el RUT: {rut_buscado}")
-            
-            # (Este espacio mostrará las compras cuando conectemos el módulo de Ventas con el RUT)
-            ventas_cliente = df_ventas[df_ventas['Cliente_RUT'] == rut_buscado] if 'Cliente_RUT' in df_ventas.columns else pd.DataFrame()
-            
-            if not ventas_cliente.empty:
-                st.dataframe(ventas_cliente)
+            st.info(f"Historial para el RUT: {rut_sel}")
+            # Filtra ventas por RUT
+            compras = df_ventas[df_ventas['RUT_Cliente'] == rut_sel]
+            if not compras.empty:
+                st.dataframe(compras)
             else:
-                st.write("Aún no hay compras registradas para este cliente.")
+                st.write("No registra compras aún.")
         else:
-            st.warning("No hay clientes en la base de datos.")
+            st.warning("No hay clientes registrados.")
 
     st.subheader("Base de Datos General")
     st.dataframe(df_clientes, use_container_width=True)
+
+# --- LOS OTROS MÓDULOS (Resumen para evitar errores) ---
+elif menu == "📦 Inventario":
+    st.header("📦 Inventario")
+    st.dataframe(df_insumos)
+
+elif menu == "👩‍🍳 Producción":
+    st.header("👩‍🍳 Producción")
+    st.write("Módulo listo para cálculos.")
+
+elif menu == "🛒 Caja y Ventas":
+    st.header("🛒 Registro de Ventas")
+    st.write("Asocia ventas por RUT en la siguiente actualización.")
